@@ -98,6 +98,11 @@ func checkRangeSupport(client *http.Client, streamURL string, headers map[string
 
 func fallbackYTDLP(targetURL string, cfg *Config) error {
 	fmt.Println("\x1b[1;33m[*] Range chunking unavailable/disabled. Falling back to native yt-dlp...\x1b[0m")
+	ytdlpPath, err := ytdlp.EnsureYTDLPBinary(context.Background())
+	if err != nil {
+		return fmt.Errorf("yt-dlp binary missing and auto-download failed: %w", err)
+	}
+
 	args := []string{}
 	if cfg.OutputPath != "" {
 		args = append(args, "-o", cfg.OutputPath)
@@ -107,7 +112,7 @@ func fallbackYTDLP(targetURL string, cfg *Config) error {
 	}
 	args = append(args, targetURL)
 
-	cmd := exec.Command("yt-dlp", args...)
+	cmd := exec.Command(ytdlpPath, args...)
 	var clean []string
 	for _, env := range os.Environ() {
 		if !strings.HasPrefix(strings.ToLower(env), "ftp_proxy=") {

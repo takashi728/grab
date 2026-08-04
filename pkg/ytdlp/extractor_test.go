@@ -1,6 +1,7 @@
 package ytdlp
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 )
@@ -99,5 +100,16 @@ func TestCodecPreferenceAV1OverH264(t *testing.T) {
 
 	if best.FormatID != "av1_1080p" {
 		t.Errorf("expected AV1 format 'av1_1080p' for optimal size/quality balance, got '%s'", best.FormatID)
+	}
+}
+
+func TestEnsureYTDLPBinary(t *testing.T) {
+	ctx := context.Background()
+	path, err := EnsureYTDLPBinary(ctx)
+	if err != nil {
+		t.Fatalf("EnsureYTDLPBinary failed: %v", err)
+	}
+	if path == "" {
+		t.Errorf("expected non-empty binary path")
 	}
 }

@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -114,11 +118,16 @@ func audioCodecScore(acodec string) int {
 }
 
 func ExtractInfo(ctx context.Context, targetURL string, extraArgs ...string) (*VideoInfo, error) {
+	ytdlpPath, err := EnsureYTDLPBinary(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to locate or download yt-dlp: %w", err)
+	}
+
 	args := []string{"-J", "--no-warnings"}
 	args = append(args, extraArgs...)
 	args = append(args, targetURL)
 
-	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	cmd := exec.CommandContext(ctx, ytdlpPath, args...)
 	cmd.Env = sanitizeEnv()
 	out, err := cmd.Output()
 	if err != nil {
@@ -150,6 +159,77 @@ func CleanFilename(title string) string {
 		res = strings.ReplaceAll(res, inv, "_")
 	}
 	return res
+}
+
+func EnsureYTDLPBinary(ctx context.Context) (string, error) {
+	if path, err := exec.LookPath("yt-dlp"); err == nil {
+		return path, nil
+	}
+
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		cacheDir = os.TempDir()
+	}
+
+	binDir := filepath.Join(cacheDir, "grab", "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create bin cache dir: %w", err)
+	}
+
+	binName := "yt-dlp"
+	if runtime.GOOS == "windows" {
+		binName = "yt-dlp.exe"
+	}
+
+	targetPath := filepath.Join(binDir, binName)
+	if _, err := os.Stat(targetPath); err == nil {
+		return targetPath, nil
+	}
+
+	// Auto-download standalone yt-dlp binary from official GitHub releases
+	downloadURL := "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+	if runtime.GOOS == "windows" {
+		downloadURL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+	} else if runtime.GOOS == "darwin" {
+		downloadURL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
+	}
+
+	fmt.Printf("\x1b[1;34m[*] yt-dlp not found in PATH. Auto-downloading standalone yt-dlp binary...\x1b[0m\n")
+
+	req, err := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create download request for yt-dlp: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to download yt-dlp: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download yt-dlp (HTTP %d)", resp.StatusCode)
+	}
+
+	tmpPath := targetPath + ".tmp"
+	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return "", fmt.Errorf("failed to create binary file: %w", err)
+	}
+
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		out.Close()
+		os.Remove(tmpPath)
+		return "", fmt.Errorf("failed to write yt-dlp binary: %w", err)
+	}
+	out.Close()
+
+	if err := os.Rename(tmpPath, targetPath); err != nil {
+		return "", fmt.Errorf("failed to save yt-dlp binary: %w", err)
+	}
+
+	_ = os.Chmod(targetPath, 0755)
+	return targetPath, nil
 }
 
 func sanitizeEnv() []string {
