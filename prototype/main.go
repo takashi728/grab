@@ -34,9 +34,9 @@ func renderFrame(job *downloader.DownloadJob, concurrency int, isRunning bool, s
 
 	fmt.Printf("\x1b[1mTarget URL:\x1b[0m %s\n", job.URL)
 	fmt.Printf("\x1b[1mOutput Path:\x1b[0m %s\n", job.OutputPath)
-	fmt.Printf("\x1b[1mTotal Size:\x1b[0m  %d bytes (%.2f MB)\n", total, float64(total)/(1024*1024))
-	fmt.Printf("\x1b[1mProgress:\x1b[0m    [%s] \x1b[1;32m%.2f%%\x1b[0m (%d / %d bytes)\n",
-		makeProgressBar(percent, 30), percent, downloaded, total)
+	fmt.Printf("\x1b[1mTotal Size:\x1b[0m  %s\n", downloader.FormatBytes(total))
+	fmt.Printf("\x1b[1mProgress:\x1b[0m    [%s] \x1b[1;32m%.2f%%\x1b[0m (%s / %s)\n",
+		makeProgressBar(percent, 30), percent, downloader.FormatBytes(downloaded), downloader.FormatBytes(total))
 	fmt.Printf("\x1b[1mConcurrency:\x1b[0m %d workers | \x1b[1mChunks:\x1b[0m %d\n", concurrency, len(job.Chunks))
 	fmt.Println()
 

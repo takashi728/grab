@@ -35,6 +35,26 @@ func (s ChunkState) String() string {
 	}
 }
 
+func FormatBytes(b int64) string {
+	if b < 0 {
+		return "0 B"
+	}
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	units := []string{"KB", "MB", "GB", "TB", "PB"}
+	if exp >= len(units) {
+		exp = len(units) - 1
+	}
+	return fmt.Sprintf("%.2f %s", float64(b)/float64(div), units[exp])
+}
+
 type Chunk struct {
 	Index          int        `json:"index"`
 	StartByte      int64      `json:"start_byte"`
@@ -167,6 +187,33 @@ func (j *DownloadJob) Execute(ctx context.Context, concurrency int, client *http
 }
 
 func (j *DownloadJob) downloadChunk(ctx context.Context, client *http.Client, outFile *os.File, chunk *Chunk, workerID int, onUpdate func()) error {
+	maxRetries := 3
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		err := j.downloadChunkAttempt(ctx, client, outFile, chunk, workerID, onUpdate)
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+	}
+
+	j.mu.Lock()
+	chunk.State = StateFailed
+	chunk.LastError = lastErr
+	j.mu.Unlock()
+	return lastErr
+}
+
+func (j *DownloadJob) downloadChunkAttempt(ctx context.Context, client *http.Client, outFile *os.File, chunk *Chunk, workerID int, onUpdate func()) error {
 	j.mu.Lock()
 	chunk.State = StateDownloading
 	chunk.WorkerID = workerID
@@ -177,10 +224,6 @@ func (j *DownloadJob) downloadChunk(ctx context.Context, client *http.Client, ou
 
 	req, err := http.NewRequestWithContext(ctx, "GET", j.URL, nil)
 	if err != nil {
-		j.mu.Lock()
-		chunk.State = StateFailed
-		chunk.LastError = err
-		j.mu.Unlock()
 		return err
 	}
 
@@ -189,30 +232,21 @@ func (j *DownloadJob) downloadChunk(ctx context.Context, client *http.Client, ou
 		req.Header.Set(k, v)
 	}
 
-	// Set byte range header
+	// Set byte range header for remaining un-downloaded portion
 	rangeHeader := fmt.Sprintf("bytes=%d-%d", chunk.StartByte+chunk.Downloaded, chunk.EndByte)
 	req.Header.Set("Range", rangeHeader)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		j.mu.Lock()
-		chunk.State = StateFailed
-		chunk.LastError = err
-		j.mu.Unlock()
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-		j.mu.Lock()
-		chunk.State = StateFailed
-		chunk.LastError = err
-		j.mu.Unlock()
-		return err
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	buf := make([]byte, 32*1024)
+	buf := make([]byte, 64*1024)
 	offset := chunk.StartByte + chunk.Downloaded
 
 	for {
@@ -227,10 +261,6 @@ func (j *DownloadJob) downloadChunk(ctx context.Context, client *http.Client, ou
 			// Seek & Write at specific chunk offset safely
 			_, wErr := outFile.WriteAt(buf[:n], offset)
 			if wErr != nil {
-				j.mu.Lock()
-				chunk.State = StateFailed
-				chunk.LastError = wErr
-				j.mu.Unlock()
 				return wErr
 			}
 
@@ -249,10 +279,6 @@ func (j *DownloadJob) downloadChunk(ctx context.Context, client *http.Client, ou
 			if rErr == io.EOF {
 				break
 			}
-			j.mu.Lock()
-			chunk.State = StateFailed
-			chunk.LastError = rErr
-			j.mu.Unlock()
 			return rErr
 		}
 	}

@@ -180,21 +180,26 @@ func main() {
 		}
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			ResponseHeaderTimeout: 30 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+		Timeout: 0, // No global timeout for chunk body streaming
+	}
 
 	// Prepare output filename
-	outputBase := cfg.OutputPath
-	if outputBase == "" {
-		outputBase = ytdlp.CleanFilename(info.Title)
-	}
-
-	ext := info.Ext
-	if ext == "" {
-		ext = "mp4"
-	}
-
-	targetFile := outputBase
-	if !strings.HasSuffix(targetFile, "."+ext) {
+	targetFile := cfg.OutputPath
+	if targetFile == "" {
+		outputBase := ytdlp.CleanFilename(info.Title)
+		ext := info.Ext
+		if videoFormat != nil && videoFormat.Ext != "" {
+			ext = videoFormat.Ext
+		}
+		if ext == "" {
+			ext = "mp4"
+		}
 		targetFile = fmt.Sprintf("%s.%s", outputBase, ext)
 	}
 
@@ -228,8 +233,17 @@ func main() {
 		}
 		defer os.RemoveAll(tempDir)
 
-		tempVideoPath := filepath.Join(tempDir, "video_stream.tmp")
-		tempAudioPath := filepath.Join(tempDir, "audio_stream.tmp")
+		vExt := videoFormat.Ext
+		if vExt == "" {
+			vExt = "mp4"
+		}
+		aExt := audioFormat.Ext
+		if aExt == "" {
+			aExt = "m4a"
+		}
+
+		tempVideoPath := filepath.Join(tempDir, fmt.Sprintf("video_stream.%s", vExt))
+		tempAudioPath := filepath.Join(tempDir, fmt.Sprintf("audio_stream.%s", aExt))
 
 		vJob := downloader.NewDownloadJob(videoFormat.URL, tempVideoPath, videoFormat.Filesize, cfg.NumChunks, videoFormat.HTTPHeaders)
 		aJob := downloader.NewDownloadJob(audioFormat.URL, tempAudioPath, audioFormat.Filesize, cfg.NumChunks, audioFormat.HTTPHeaders)
@@ -305,7 +319,7 @@ func renderProgress(job *downloader.DownloadJob) func() {
 			bar += ">" + strings.Repeat("-", barWidth-filled-1)
 		}
 
-		fmt.Printf("\r\x1b[2KProgress: [%s] \x1b[1;32m%5.1f%%\x1b[0m (%d / %d bytes)",
-			bar, percent, downloaded, total)
+		fmt.Printf("\r\x1b[2KProgress: [%s] \x1b[1;32m%5.1f%%\x1b[0m (%s / %s)",
+			bar, percent, downloader.FormatBytes(downloaded), downloader.FormatBytes(total))
 	}
 }

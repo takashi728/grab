@@ -39,6 +39,25 @@ func TestChunkAllocationAndRangeCoverage(t *testing.T) {
 	}
 }
 
+func TestFormatBytes(t *testing.T) {
+	tests := []struct {
+		bytes    int64
+		expected string
+	}{
+		{500, "500 B"},
+		{1024, "1.00 KB"},
+		{1572864, "1.50 MB"},
+		{1073741824, "1.00 GB"},
+	}
+
+	for _, tt := range tests {
+		res := FormatBytes(tt.bytes)
+		if res != tt.expected {
+			t.Errorf("FormatBytes(%d) = %s; want %s", tt.bytes, res, tt.expected)
+		}
+	}
+}
+
 func TestFileTruncateAndWriteAt(t *testing.T) {
 	tmpFile := "/tmp/test_truncate.tmp"
 	defer os.Remove(tmpFile)
