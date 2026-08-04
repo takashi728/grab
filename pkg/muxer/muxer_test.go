@@ -9,6 +9,7 @@ import (
 
 func TestMuxerCommandGeneration(t *testing.T) {
 	m := NewFFmpegMuxer()
+	m.GPU.Available = false // Disable GPU for baseline arg test
 	args := m.BuildArgs("/tmp/video.mp4", "/tmp/audio.m4a", "/tmp/output.mp4")
 
 	expected := []string{"-y", "-i", "/tmp/video.mp4", "-i", "/tmp/audio.m4a", "-c", "copy", "/tmp/output.mp4"}

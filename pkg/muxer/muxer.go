@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+
+	"grab/pkg/gpu"
 )
 
 type Muxer interface {
@@ -14,6 +16,7 @@ type Muxer interface {
 
 type FFmpegMuxer struct {
 	FFmpegPath string
+	GPU        gpu.GPUInfo
 }
 
 func NewFFmpegMuxer() *FFmpegMuxer {
@@ -21,7 +24,11 @@ func NewFFmpegMuxer() *FFmpegMuxer {
 	if err != nil {
 		path = "ffmpeg"
 	}
-	return &FFmpegMuxer{FFmpegPath: path}
+	gpuInfo := gpu.DetectGPU()
+	return &FFmpegMuxer{
+		FFmpegPath: path,
+		GPU:        gpuInfo,
+	}
 }
 
 func (m *FFmpegMuxer) IsAvailable() bool {
@@ -30,13 +37,24 @@ func (m *FFmpegMuxer) IsAvailable() bool {
 }
 
 func (m *FFmpegMuxer) BuildArgs(videoPath, audioPath, outputPath string) []string {
-	return []string{
-		"-y",
+	args := []string{"-y"}
+
+	// Add GPU hardware acceleration flags if CUDA / VAAPI is available
+	if m.GPU.Available {
+		hwArgs := m.GPU.FFmpegHWAccelArgs()
+		if len(hwArgs) > 0 {
+			args = append(args, hwArgs...)
+		}
+	}
+
+	args = append(args,
 		"-i", videoPath,
 		"-i", audioPath,
 		"-c", "copy",
 		outputPath,
-	}
+	)
+
+	return args
 }
 
 func (m *FFmpegMuxer) Mux(ctx context.Context, videoPath, audioPath, outputPath string) error {

@@ -24,14 +24,15 @@ var (
 )
 
 type Config struct {
-	URL            string
-	OutputPath     string
-	Format         string
-	Concurrency    int
-	NumChunks      int
-	Fallback       bool
-	PrintVersion   bool
-	Verbose        bool
+	URL          string
+	OutputPath   string
+	Format       string
+	Concurrency  int
+	NumChunks    int
+	GPUIndex     int
+	Fallback     bool
+	PrintVersion bool
+	Verbose      bool
 }
 
 func parseFlags() *Config {
@@ -43,6 +44,7 @@ func parseFlags() *Config {
 	flag.IntVar(&cfg.Concurrency, "n", 8, "Download concurrency / worker pool size")
 	flag.IntVar(&cfg.Concurrency, "concurrency", 8, "Download concurrency / worker pool size")
 	flag.IntVar(&cfg.NumChunks, "chunks", 8, "Number of byte-range chunks per file")
+	flag.IntVar(&cfg.GPUIndex, "gpu", 0, "GPU index for NVENC/CUDA hardware acceleration (default: 0)")
 	flag.BoolVar(&cfg.Fallback, "fallback", false, "Force fallback to standard yt-dlp execution")
 	flag.BoolVar(&cfg.PrintVersion, "v", false, "Print version")
 	flag.BoolVar(&cfg.PrintVersion, "version", false, "Print version")
@@ -204,6 +206,14 @@ func main() {
 	}
 
 	muxerImpl := muxer.NewFFmpegMuxer()
+	if cfg.GPUIndex >= 0 {
+		muxerImpl.GPU.GPUIndex = cfg.GPUIndex
+	}
+
+	if muxerImpl.GPU.Available {
+		fmt.Printf("\x1b[1;32m[GPU Acceleration Enabled]\x1b[0m %s (CUDA/NVENC device #%d)\n",
+			muxerImpl.GPU.Name, muxerImpl.GPU.GPUIndex)
+	}
 
 	// Single format or video+audio streams
 	if videoFormat != nil && audioFormat != nil && videoFormat.FormatID != audioFormat.FormatID {
