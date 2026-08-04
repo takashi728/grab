@@ -39,7 +39,25 @@ func (v *VideoInfo) BestVideoFormat() *Format {
 	for i := range v.Formats {
 		f := &v.Formats[i]
 		if f.VCodec != "none" && f.VCodec != "" {
-			if best == nil || f.Height > best.Height || (f.Height == best.Height && f.TBR > best.TBR) {
+			if best == nil {
+				best = f
+				continue
+			}
+
+			// 1. Prefer higher resolution
+			if f.Height > best.Height {
+				best = f
+				continue
+			} else if f.Height < best.Height {
+				continue
+			}
+
+			// 2. Same resolution: prefer higher compression efficiency codec (AV1 > VP9 > H.264)
+			fScore := videoCodecScore(f.VCodec)
+			bestScore := videoCodecScore(best.VCodec)
+			if fScore > bestScore {
+				best = f
+			} else if fScore == bestScore && f.TBR > best.TBR {
 				best = f
 			}
 		}
@@ -52,12 +70,47 @@ func (v *VideoInfo) BestAudioFormat() *Format {
 	for i := range v.Formats {
 		f := &v.Formats[i]
 		if f.ACodec != "none" && f.ACodec != "" && (f.VCodec == "none" || f.VCodec == "") {
-			if best == nil || f.TBR > best.TBR || f.Filesize > best.Filesize {
+			if best == nil {
+				best = f
+				continue
+			}
+
+			fScore := audioCodecScore(f.ACodec)
+			bestScore := audioCodecScore(best.ACodec)
+			if fScore > bestScore {
+				best = f
+			} else if fScore == bestScore && (f.TBR > best.TBR || f.Filesize > best.Filesize) {
 				best = f
 			}
 		}
 	}
 	return best
+}
+
+func videoCodecScore(vcodec string) int {
+	vcodec = strings.ToLower(vcodec)
+	switch {
+	case strings.HasPrefix(vcodec, "av01") || strings.Contains(vcodec, "av1"):
+		return 30
+	case strings.HasPrefix(vcodec, "vp09") || strings.Contains(vcodec, "vp9"):
+		return 20
+	case strings.HasPrefix(vcodec, "avc1") || strings.Contains(vcodec, "h264"):
+		return 10
+	default:
+		return 5
+	}
+}
+
+func audioCodecScore(acodec string) int {
+	acodec = strings.ToLower(acodec)
+	switch {
+	case strings.Contains(acodec, "opus"):
+		return 20
+	case strings.HasPrefix(acodec, "mp4a") || strings.Contains(acodec, "aac"):
+		return 10
+	default:
+		return 5
+	}
 }
 
 func ExtractInfo(ctx context.Context, targetURL string, extraArgs ...string) (*VideoInfo, error) {
