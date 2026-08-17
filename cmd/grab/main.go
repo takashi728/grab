@@ -202,6 +202,9 @@ func main() {
 			Proxy:                 http.ProxyFromEnvironment,
 			ResponseHeaderTimeout: 30 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
+			// googlevideo 403s concurrent range requests when the client
+			// advertises Accept-Encoding: gzip; force identity for chunks.
+			DisableCompression: true,
 		},
 		Timeout: 0, // No global timeout for chunk body streaming
 	}
