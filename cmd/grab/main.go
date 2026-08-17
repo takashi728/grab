@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -19,9 +20,18 @@ import (
 	"github.com/takashi728/grab/pkg/ytdlp"
 )
 
-var (
-	version = "0.1.0"
-)
+// version is set via -ldflags or resolved from the module build info.
+var version = ""
+
+func resolveVersion() string {
+	if version != "" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return strings.TrimPrefix(bi.Main.Version, "v")
+	}
+	return "dev"
+}
 
 type Config struct {
 	URL          string
@@ -52,7 +62,7 @@ func parseFlags() *Config {
 	flag.Parse()
 
 	if cfg.PrintVersion {
-		fmt.Printf("grab version %s\n", version)
+		fmt.Printf("grab version %s\n", resolveVersion())
 		os.Exit(0)
 	}
 
