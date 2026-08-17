@@ -107,7 +107,7 @@ func checkRangeSupport(client *http.Client, streamURL string, headers map[string
 }
 
 func fallbackYTDLP(targetURL string, cfg *Config) error {
-	fmt.Println("\x1b[1;33m[*] Range chunking unavailable/disabled. Falling back to native yt-dlp...\x1b[0m")
+	fmt.Println("\x1b[1;33m[*] Falling back to native yt-dlp (sequential single-connection download)...\x1b[0m")
 	ytdlpPath, err := ytdlp.EnsureYTDLPBinary(context.Background())
 	if err != nil {
 		return fmt.Errorf("yt-dlp binary missing and auto-download failed: %w", err)
@@ -117,7 +117,15 @@ func fallbackYTDLP(targetURL string, cfg *Config) error {
 	if cfg.OutputPath != "" {
 		args = append(args, "-o", cfg.OutputPath)
 	}
-	if cfg.Format != "" && cfg.Format != "best" {
+	// Translate grab format names to yt-dlp format selectors.
+	switch cfg.Format {
+	case "", "best":
+		// yt-dlp default: bestvideo+bestaudio merged
+	case "audio-only":
+		args = append(args, "-f", "bestaudio")
+	case "video-only":
+		args = append(args, "-f", "bestvideo")
+	default:
 		args = append(args, "-f", cfg.Format)
 	}
 	args = append(args, targetURL)
@@ -278,15 +286,21 @@ func main() {
 
 		fmt.Println("\x1b[1;34m[3/4] Downloading video stream...\x1b[0m")
 		if err := vJob.Execute(ctx, cfg.Concurrency, client, renderProgress(vJob)); err != nil {
-			fmt.Printf("\nVideo stream download failed: %v\n", err)
-			os.Exit(1)
+			fmt.Printf("\n\x1b[1;33m[!] Video chunking failed (%v).\x1b[0m\n", err)
+			if fErr := fallbackYTDLP(cfg.URL, cfg); fErr != nil {
+				os.Exit(1)
+			}
+			return
 		}
 		fmt.Println("\n\x1b[1;32mVideo stream downloaded successfully.\x1b[0m")
 
 		fmt.Println("\x1b[1;34m[3/4] Downloading audio stream...\x1b[0m")
 		if err := aJob.Execute(ctx, cfg.Concurrency, client, renderProgress(aJob)); err != nil {
-			fmt.Printf("\nAudio stream download failed: %v\n", err)
-			os.Exit(1)
+			fmt.Printf("\n\x1b[1;33m[!] Audio chunking failed (%v).\x1b[0m\n", err)
+			if fErr := fallbackYTDLP(cfg.URL, cfg); fErr != nil {
+				os.Exit(1)
+			}
+			return
 		}
 		fmt.Println("\n\x1b[1;32mAudio stream downloaded successfully.\x1b[0m")
 
@@ -320,8 +334,13 @@ func main() {
 
 		fmt.Println("\x1b[1;34m[3/4] Downloading stream...\x1b[0m")
 		if err := job.Execute(ctx, cfg.Concurrency, client, renderProgress(job)); err != nil {
-			fmt.Printf("\nDownload failed: %v\n", err)
-			os.Exit(1)
+			fmt.Printf("\n\x1b[1;33m[!] Parallel chunking failed (%v).\x1b[0m\n", err)
+			// Drop the corrupted pre-allocated file so the fallback starts clean.
+			os.Remove(targetFile)
+			if fErr := fallbackYTDLP(cfg.URL, cfg); fErr != nil {
+				os.Exit(1)
+			}
+			return
 		}
 
 		fmt.Printf("\n\x1b[1;32mFinished! Saved to %s\x1b[0m\n", targetFile)

@@ -160,6 +160,15 @@ func (j *DownloadJob) Execute(ctx context.Context, concurrency int, client *http
 		wg.Add(1)
 		go func(wID int) {
 			defer wg.Done()
+			// Stagger connection setup: a simultaneous burst of range
+			// requests to one URL gets 403'd by some CDNs (googlevideo).
+			if wID > 1 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Duration(wID-1) * 300 * time.Millisecond):
+				}
+			}
 			for chunk := range workChan {
 				select {
 				case <-ctx.Done():
@@ -203,7 +212,13 @@ func (j *DownloadJob) downloadChunk(ctx context.Context, client *http.Client, ou
 		}
 
 		lastErr = err
-		time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+		if attempt < maxRetries {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
+		}
 	}
 
 	j.mu.Lock()
