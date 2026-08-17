@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/exec"
 
-	"grab/pkg/gpu"
+	"github.com/takashi728/grab/pkg/gpu"
 )
 
 type Muxer interface {

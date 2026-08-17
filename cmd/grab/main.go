@@ -14,9 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	"grab/pkg/downloader"
-	"grab/pkg/muxer"
-	"grab/pkg/ytdlp"
+	"github.com/takashi728/grab/pkg/downloader"
+	"github.com/takashi728/grab/pkg/muxer"
+	"github.com/takashi728/grab/pkg/ytdlp"
 )
 
 var (

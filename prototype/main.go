@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"grab/pkg/downloader"
+	"github.com/takashi728/grab/pkg/downloader"
 )
 
 func renderFrame(job *downloader.DownloadJob, concurrency int, isRunning bool, statusMsg string) {
