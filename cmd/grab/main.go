@@ -106,7 +106,7 @@ func checkRangeSupport(client *http.Client, streamURL string, headers map[string
 	return false, 0
 }
 
-func fallbackYTDLP(targetURL string, cfg *Config) error {
+func fallbackYTDLP(targetURL, output string, cfg *Config) error {
 	fmt.Println("\x1b[1;33m[*] Falling back to native yt-dlp (sequential single-connection download)...\x1b[0m")
 	ytdlpPath, err := ytdlp.EnsureYTDLPBinary(context.Background())
 	if err != nil {
@@ -114,8 +114,8 @@ func fallbackYTDLP(targetURL string, cfg *Config) error {
 	}
 
 	args := []string{}
-	if cfg.OutputPath != "" {
-		args = append(args, "-o", cfg.OutputPath)
+	if output != "" {
+		args = append(args, "-o", output)
 	}
 	// Translate grab format names to yt-dlp format selectors.
 	switch cfg.Format {
@@ -154,7 +154,7 @@ func main() {
 	}
 
 	if cfg.Fallback {
-		if err := fallbackYTDLP(cfg.URL, cfg); err != nil {
+		if err := fallbackYTDLP(cfg.URL, cfg.OutputPath, cfg); err != nil {
 			fmt.Printf("Fallback failed: %v\n", err)
 			os.Exit(1)
 		}
@@ -177,7 +177,7 @@ func main() {
 	info, err := ytdlp.ExtractInfo(ctx, cfg.URL)
 	if err != nil {
 		fmt.Printf("\x1b[1;33mWarning: Metadata extraction failed (%v).\x1b[0m\n", err)
-		if fErr := fallbackYTDLP(cfg.URL, cfg); fErr != nil {
+		if fErr := fallbackYTDLP(cfg.URL, cfg.OutputPath, cfg); fErr != nil {
 			os.Exit(1)
 		}
 		return
@@ -224,6 +224,13 @@ func main() {
 		ext := info.Ext
 		if videoFormat != nil && videoFormat.Ext != "" {
 			ext = videoFormat.Ext
+		} else if audioFormat != nil && audioFormat.Ext != "" {
+			ext = audioFormat.Ext
+		}
+		// RFC 7845: opus audio files use .opus, not .webm
+		if videoFormat == nil && ext == "webm" && audioFormat != nil &&
+			strings.Contains(strings.ToLower(audioFormat.ACodec), "opus") {
+			ext = "opus"
 		}
 		if ext == "" {
 			ext = "mp4"
@@ -249,7 +256,7 @@ func main() {
 		aSupportsRange, aTotal := checkRangeSupport(client, audioFormat.URL, audioFormat.HTTPHeaders)
 
 		if !vSupportsRange || !aSupportsRange {
-			if fErr := fallbackYTDLP(cfg.URL, cfg); fErr != nil {
+			if fErr := fallbackYTDLP(cfg.URL, cfg.OutputPath, cfg); fErr != nil {
 				os.Exit(1)
 			}
 			return
@@ -287,7 +294,7 @@ func main() {
 		fmt.Println("\x1b[1;34m[3/4] Downloading video stream...\x1b[0m")
 		if err := vJob.Execute(ctx, cfg.Concurrency, client, renderProgress(vJob)); err != nil {
 			fmt.Printf("\n\x1b[1;33m[!] Video chunking failed (%v).\x1b[0m\n", err)
-			if fErr := fallbackYTDLP(cfg.URL, cfg); fErr != nil {
+			if fErr := fallbackYTDLP(cfg.URL, targetFile, cfg); fErr != nil {
 				os.Exit(1)
 			}
 			return
@@ -297,7 +304,7 @@ func main() {
 		fmt.Println("\x1b[1;34m[3/4] Downloading audio stream...\x1b[0m")
 		if err := aJob.Execute(ctx, cfg.Concurrency, client, renderProgress(aJob)); err != nil {
 			fmt.Printf("\n\x1b[1;33m[!] Audio chunking failed (%v).\x1b[0m\n", err)
-			if fErr := fallbackYTDLP(cfg.URL, cfg); fErr != nil {
+			if fErr := fallbackYTDLP(cfg.URL, targetFile, cfg); fErr != nil {
 				os.Exit(1)
 			}
 			return
@@ -320,7 +327,7 @@ func main() {
 		fmt.Println("\x1b[1;34m[2/4] Checking HTTP Range chunk support...\x1b[0m")
 		supportsRange, totalSize := checkRangeSupport(client, targetFormat.URL, targetFormat.HTTPHeaders)
 		if !supportsRange {
-			if fErr := fallbackYTDLP(cfg.URL, cfg); fErr != nil {
+			if fErr := fallbackYTDLP(cfg.URL, cfg.OutputPath, cfg); fErr != nil {
 				os.Exit(1)
 			}
 			return
@@ -337,7 +344,7 @@ func main() {
 			fmt.Printf("\n\x1b[1;33m[!] Parallel chunking failed (%v).\x1b[0m\n", err)
 			// Drop the corrupted pre-allocated file so the fallback starts clean.
 			os.Remove(targetFile)
-			if fErr := fallbackYTDLP(cfg.URL, cfg); fErr != nil {
+			if fErr := fallbackYTDLP(cfg.URL, targetFile, cfg); fErr != nil {
 				os.Exit(1)
 			}
 			return
